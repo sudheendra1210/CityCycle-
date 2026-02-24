@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import bins, vehicles, collections, complaints, analytics, predictions, forecasting, auth, webhooks
+from app.routes import route_optimization, classification, simulation
 from app.utils.database import engine, Base
 
 # Create database tables
@@ -31,6 +32,9 @@ app.include_router(complaints.router, prefix="/api/complaints", tags=["Complaint
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(predictions.router, prefix="/api/predictions", tags=["Predictions"])
 app.include_router(forecasting.router, prefix="/api/forecasting", tags=["Forecasting"])
+app.include_router(route_optimization.router, prefix="/api/route-optimization", tags=["Route Optimization"])
+app.include_router(classification.router, prefix="/api/classification", tags=["Classification"])
+app.include_router(simulation.router, prefix="/api/simulation", tags=["Simulation"])
 
 @app.get("/")
 def read_root():

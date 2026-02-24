@@ -10,7 +10,9 @@ import {
     MdTrendingUp as TrendingUp,
     MdMenu as Menu,
     MdClose as X,
-    MdPerson as UserIcon
+    MdPerson as UserIcon,
+    MdCategory as CategoryIcon,
+    MdScience as ScienceIcon
 } from 'react-icons/md';
 import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -30,6 +32,8 @@ const Sidebar = () => {
         { path: '/analytics', icon: BarChart3, label: 'Analytics', roles: ['admin'] },
         { path: '/predictions', icon: Brain, label: 'Predictions', roles: ['admin'] },
         { path: '/forecasting', icon: TrendingUp, label: 'Forecasting', roles: ['admin'] },
+        { path: '/classification', icon: CategoryIcon, label: 'Classification', roles: ['admin'] },
+        { path: '/simulation', icon: ScienceIcon, label: 'Simulation', roles: ['admin'] },
         { path: '/profile', icon: UserIcon, label: 'Profile' },
     ];
 

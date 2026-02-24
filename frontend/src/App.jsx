@@ -12,6 +12,8 @@ import Analytics from './pages/Analytics';
 import Predictions from './pages/Predictions';
 import Forecasting from './pages/Forecasting';
 import Profile from './pages/Profile';
+import Classification from './pages/Classification';
+import Simulation from './pages/Simulation';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 
@@ -40,6 +42,8 @@ function App() {
                       <Route path="/analytics" element={<Analytics />} />
                       <Route path="/predictions" element={<Predictions />} />
                       <Route path="/forecasting" element={<Forecasting />} />
+                      <Route path="/classification" element={<Classification />} />
+                      <Route path="/simulation" element={<Simulation />} />
                       <Route path="/profile" element={<Profile />} />
                     </Routes>
                   </Layout>
