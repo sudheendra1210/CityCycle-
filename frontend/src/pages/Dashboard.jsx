@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useQuery } from 'convex/react';
+import { api } from '../../convex/_generated/api.js';
 import {
     MdTrendingUp as TrendingUp,
     MdErrorOutline as AlertCircle,
@@ -21,6 +23,10 @@ import { useLocation } from '../contexts/LocationContext';
 
 const Dashboard = () => {
     const { coords, areaName, loading: locationLoading } = useLocation();
+
+    // Use Convex for real-time bin data
+    const liveBins = useQuery(api.bins.getWithReadings) || [];
+
     const [stats, setStats] = useState({
         total_bins: 0,
         bins_needing_collection: 0,
@@ -28,7 +34,6 @@ const Dashboard = () => {
         active_complaints: 0,
         average_fill_level: 0
     });
-    const [mapBins, setMapBins] = useState([]);
     const [nearbyBins, setNearbyBins] = useState([]);
     const [alerts, setAlerts] = useState([]);
     const [predictions, setPredictions] = useState([]);
@@ -39,24 +44,29 @@ const Dashboard = () => {
     const [showRoute, setShowRoute] = useState(false);
     const [viewMode, setViewMode] = useState('local');
 
+    // Filter liveBins based on area and viewMode
+    const mapBins = liveBins.filter(bin => {
+        if (viewMode === 'global' || areaName === 'Global View') return true;
+        return bin.area_name === areaName;
+    });
+
     const fetchDashboardData = useCallback(async () => {
         try {
             setLoading(true);
             const filterArea = viewMode === 'local' && areaName !== 'Global View' ? areaName : null;
 
-            const [statsData, trendsData, alertsData, predictionsData, mapBinsData] = await Promise.all([
+            // mapBins is now handled by Convex useQuery
+            const [statsData, trendsData, alertsData, predictionsData] = await Promise.all([
                 analyticsService.getDashboardStats(filterArea),
                 analyticsService.getFillLevelTrends(filterArea),
                 analyticsService.getAlerts(filterArea),
-                predictionsService.getBinPredictions(filterArea),
-                analyticsService.getBinsForMap(filterArea)
+                predictionsService.getBinPredictions(filterArea)
             ]);
 
             setStats(statsData);
             setTrends(trendsData);
             setAlerts(alertsData);
             setPredictions(predictionsData);
-            setMapBins(mapBinsData);
 
             if (coords) {
                 const nearby = await binsService.getNearbyBins(coords.lat, coords.lng);
@@ -75,13 +85,6 @@ const Dashboard = () => {
         }
     }, [fetchDashboardData, locationLoading]);
 
-    // Cleanup interval for real-time updates
-    useEffect(() => {
-        const interval = setInterval(() => {
-            if (!locationLoading) fetchDashboardData();
-        }, 30000);
-        return () => clearInterval(interval);
-    }, [fetchDashboardData, locationLoading]);
 
     const handleOptimizeRoute = async () => {
         setIsOptimizing(true);

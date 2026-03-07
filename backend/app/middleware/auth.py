@@ -9,6 +9,8 @@ from app.utils.database import get_db
 from sqlalchemy.orm import Session
 from app.models.database_models import User, UserRole
 
+from app.utils.convex_client import convex_manager
+
 security = HTTPBearer()
 
 # Cache for JWKS
@@ -37,11 +39,9 @@ def verify_clerk_token(credentials: HTTPAuthorizationCredentials = Security(secu
         raise HTTPException(status_code=500, detail="Could not fetch JWKS from Clerk")
 
     try:
-        # Get the kid from the header
         unverified_header = jwt.get_unverified_header(token)
         kid = unverified_header.get("kid")
         
-        # Find the correct key in JWKS
         rsa_key = {}
         for key in jwks.get("keys", []):
             if key.get("kid") == kid:
@@ -57,7 +57,6 @@ def verify_clerk_token(credentials: HTTPAuthorizationCredentials = Security(secu
         if not rsa_key:
             raise HTTPException(status_code=401, detail="Invalid token")
 
-        # Verify the token
         payload = jwt.decode(
             token,
             rsa_key,
@@ -86,58 +85,57 @@ def verify_backend_token(token: str) -> Dict:
         raise HTTPException(status_code=401, detail=f"Invalid backend token: {str(e)}")
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Security(security),
-    db: Session = Depends(get_db)
+    credentials: HTTPAuthorizationCredentials = Security(security)
 ) -> Dict:
     """
-    Dependency to get current authenticated user (Clerk or Backend)
+    Dependency to get current authenticated user from Convex
     """
     token = credentials.credentials
     
-    # Logic to distinguish between Clerk and Backend tokens
-    # Custom backend tokens are HS256, Clerk tokens are RS256 with specific headers
     try:
         header = jwt.get_unverified_header(token)
         if header.get("alg") == "HS256":
-            # Backend Token
+            # Backend Token (Legacy support or custom flow)
             payload = verify_backend_token(token)
-            user_id = payload.get("user_id")
-            user = db.query(User).filter(User.id == user_id).first()
+            clerk_id = payload.get("phone") # Use phone as key if no clerk_id
+            user_data = convex_manager.client.query("users:getByClerkId", {"clerk_id": clerk_id})
         else:
             # Clerk Token
             payload = verify_clerk_token(credentials)
             clerk_id = payload.get("sub")
-            user = db.query(User).filter(User.clerk_id == clerk_id).first()
+            user_data = convex_manager.client.query("users:getByClerkId", {"clerk_id": clerk_id})
             
-            if not user:
-                # Sync Clerk user to DB
+            if not user_data:
+                # Sync Clerk user to Convex
                 email = payload.get("email") or payload.get("email_address")
                 metadata = {**payload.get("public_metadata", {}), **payload.get("unsafe_metadata", {})}
-                user = User(
-                    clerk_id=clerk_id,
-                    email=email,
-                    role=metadata.get("role") or UserRole.USER,
-                    area=metadata.get("area"),
-                    is_phone_verified=False
-                )
-                db.add(user)
-                db.commit()
-                db.refresh(user)
+                
+                user_args = {
+                    "clerk_id": clerk_id,
+                    "email": email,
+                    "name": payload.get("name") or (email.split('@')[0] if email else "User"),
+                    "role": metadata.get("role") or "user",
+                    "area": metadata.get("area"),
+                    "is_phone_verified": False
+                }
+                convex_manager.upsert_user(user_args)
+                user_data = user_args
+
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    if not user_data:
+        raise HTTPException(status_code=404, detail="User not found in Convex")
         
     return {
-        "id": user.clerk_id or f"phone_{user.id}",
-        "db_id": user.id,
-        "name": user.name,
-        "email": user.email,
-        "phone": user.phone,
-        "role": user.role,
-        "area": user.area,
-        "is_phone_verified": user.is_phone_verified
+        "id": user_data.get('clerk_id'),
+        "db_id": user_data.get('_id', 0), # Convex ID
+        "name": user_data.get('name'),
+        "email": user_data.get('email'),
+        "phone": user_data.get('phone'),
+        "role": user_data.get('role', 'user'),
+        "area": user_data.get('area'),
+        "is_phone_verified": user_data.get('is_phone_verified', False)
     }
 
 
@@ -172,8 +170,7 @@ def require_role(required_role: str):
 optional_security = HTTPBearer(auto_error=False)
 
 def get_optional_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Security(optional_security),
-    db: Session = Depends(get_db)
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(optional_security)
 ) -> Optional[Dict]:
     """
     Get user if authenticated, None otherwise
@@ -182,7 +179,6 @@ def get_optional_user(
         return None
     
     try:
-        payload = verify_clerk_token(credentials)
-        return get_current_user(payload, db)
+        return get_current_user(credentials)
     except:
         return None

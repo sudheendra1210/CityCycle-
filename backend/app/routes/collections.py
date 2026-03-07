@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from app.middleware.auth import require_role
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from app.models.database_models import Collection, Bin
@@ -9,66 +10,44 @@ from datetime import datetime, timedelta
 
 router = APIRouter()
 
+from app.utils.convex_client import convex_manager
+
+router = APIRouter()
+
 @router.get("/", response_model=List[CollectionResponse])
-def get_collections(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """Get all collections"""
-    collections = db.query(Collection).order_by(
-        desc(Collection.collection_timestamp)
-    ).offset(skip).limit(limit).all()
-    return collections
+def get_collections(
+    bin_id: str = None,
+    vehicle_id: str = None,
+    user=Depends(require_role("worker"))
+):
+    """Get all collections from Convex"""
+    return convex_manager.get_collections(bin_id=bin_id, vehicle_id=vehicle_id)
 
 @router.post("/", response_model=CollectionResponse)
-def create_collection(collection: CollectionCreate, db: Session = Depends(get_db)):
-    """Record a new collection"""
-    db_collection = Collection(**collection.dict())
-    db.add(db_collection)
-    db.commit()
-    db.refresh(db_collection)
-    return db_collection
+def create_collection(
+    collection: CollectionCreate, 
+    user=Depends(require_role("worker"))
+):
+    """Record a new collection in Convex"""
+    collection_data = collection.dict()
+    res = convex_manager.create_collection(collection_data)
+    return {**collection_data, "id": res}
 
 @router.get("/stats/daily")
-def get_daily_stats(days: int = 7, db: Session = Depends(get_db)):
-    """Get daily collection statistics"""
-    since = datetime.utcnow() - timedelta(days=days)
-    
-    daily_stats = db.query(
-        func.date(Collection.collection_timestamp).label('date'),
-        func.count(Collection.id).label('total_collections'),
-        func.sum(Collection.waste_collected_kg).label('total_waste_kg'),
-        func.avg(Collection.duration_minutes).label('avg_duration')
-    ).filter(
-        Collection.collection_timestamp >= since
-    ).group_by(
-        func.date(Collection.collection_timestamp)
-    ).all()
-    
-    return [
-        {
-            "date": str(stat.date),
-            "total_collections": stat.total_collections,
-            "total_waste_kg": round(stat.total_waste_kg, 2) if stat.total_waste_kg else 0,
-            "avg_duration": round(stat.avg_duration, 2) if stat.avg_duration else 0
-        }
-        for stat in daily_stats
-    ]
+def get_daily_stats(
+    days: int = 7, 
+    user=Depends(require_role("admin"))
+):
+    """Get daily collection statistics from Convex"""
+    stats = convex_manager.client.query("collections:getStats", {"days": days})
+    return stats.get("daily", [])
 
 @router.get("/stats/composition")
-def get_waste_composition(db: Session = Depends(get_db)):
-    """Get average waste composition"""
-    avg_composition = db.query(
-        func.avg(Collection.organic_percent).label('organic'),
-        func.avg(Collection.plastic_percent).label('plastic'),
-        func.avg(Collection.paper_percent).label('paper'),
-        func.avg(Collection.metal_percent).label('metal'),
-        func.avg(Collection.glass_percent).label('glass'),
-        func.avg(Collection.other_percent).label('other')
-    ).first()
-    
-    return {
-        "organic": round(avg_composition.organic, 1) if avg_composition.organic else 0,
-        "plastic": round(avg_composition.plastic, 1) if avg_composition.plastic else 0,
-        "paper": round(avg_composition.paper, 1) if avg_composition.paper else 0,
-        "metal": round(avg_composition.metal, 1) if avg_composition.metal else 0,
-        "glass": round(avg_composition.glass, 1) if avg_composition.glass else 0,
-        "other": round(avg_composition.other, 1) if avg_composition.other else 0
+def get_waste_composition(
+    user=Depends(require_role("admin"))
+):
+    """Get average waste composition from Convex"""
+    stats = convex_manager.client.query("collections:getStats", {})
+    return stats.get("composition") or {
+        "organic": 0, "plastic": 0, "paper": 0, "metal": 0, "glass": 0, "other": 0
     }

@@ -36,14 +36,63 @@ function App() {
                     <Routes>
                       <Route path="/" element={<Dashboard />} />
                       <Route path="/bins" element={<Bins />} />
-                      <Route path="/vehicles" element={<Vehicles />} />
-                      <Route path="/collections" element={<Collections />} />
+                      <Route
+                        path="/vehicles"
+                        element={
+                          <ProtectedRoute allowedRoles={['admin', 'worker']}>
+                            <Vehicles />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="/collections"
+                        element={
+                          <ProtectedRoute allowedRoles={['admin', 'worker']}>
+                            <Collections />
+                          </ProtectedRoute>
+                        }
+                      />
                       <Route path="/complaints" element={<Complaints />} />
-                      <Route path="/analytics" element={<Analytics />} />
-                      <Route path="/predictions" element={<Predictions />} />
-                      <Route path="/forecasting" element={<Forecasting />} />
-                      <Route path="/classification" element={<Classification />} />
-                      <Route path="/simulation" element={<Simulation />} />
+                      <Route
+                        path="/analytics"
+                        element={
+                          <ProtectedRoute allowedRoles={['admin']}>
+                            <Analytics />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="/predictions"
+                        element={
+                          <ProtectedRoute allowedRoles={['admin']}>
+                            <Predictions />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="/forecasting"
+                        element={
+                          <ProtectedRoute allowedRoles={['admin']}>
+                            <Forecasting />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="/classification"
+                        element={
+                          <ProtectedRoute allowedRoles={['admin']}>
+                            <Classification />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="/simulation"
+                        element={
+                          <ProtectedRoute allowedRoles={['admin']}>
+                            <Simulation />
+                          </ProtectedRoute>
+                        }
+                      />
                       <Route path="/profile" element={<Profile />} />
                     </Routes>
                   </Layout>

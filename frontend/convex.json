@@ -1,0 +1,11 @@
+{
+    "sources": "convex/",
+    "auth": {
+        "providers": [
+            {
+                "domain": "clerk",
+                "applicationID": "convex"
+            }
+        ]
+    }
+}

@@ -1,12 +1,26 @@
 import { useState, useEffect } from 'react';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../convex/_generated/api.js';
 import { MdLocationOn as MapPin, MdSend as Send, MdInfo as Info } from 'react-icons/md';
 import { complaintsService } from '../services/complaintsService';
 import { useLocation } from '../contexts/LocationContext';
 
 const Complaints = () => {
     const { coords, areaName, loading: locationLoading, permissionStatus } = useLocation();
-    const [complaints, setComplaints] = useState([]);
-    const [loading, setLoading] = useState(true);
+
+    // Use Convex for real-time complaints data
+    const allComplaints = useQuery(api.complaints.get, {
+        status: undefined
+    }) || [];
+
+    const createComplaint = useMutation(api.complaints.create);
+
+    // Filter complaints based on areaName
+    const complaints = allComplaints.filter(c => {
+        if (areaName === 'Global View') return true;
+        return c.area_name === areaName;
+    });
+
     const [showForm, setShowForm] = useState(false);
     const [formData, setFormData] = useState({
         complaint_type: 'overflowing_bin',
@@ -14,22 +28,8 @@ const Complaints = () => {
         urgency: 'medium',
     });
 
-    useEffect(() => {
-        if (!locationLoading) {
-            fetchComplaints();
-        }
-    }, [locationLoading, areaName]);
-
-    const fetchComplaints = async () => {
-        try {
-            setLoading(true);
-            const data = await complaintsService.getAllComplaints(areaName === 'Global View' ? null : areaName);
-            setComplaints(data);
-        } catch (error) {
-            console.error('Error fetching complaints:', error);
-        } finally {
-            setLoading(false);
-        }
+    const fetchComplaints = () => {
+        // No longer needed, as useQuery handles it
     };
 
     const handleSubmit = async (e) => {
@@ -42,20 +42,22 @@ const Complaints = () => {
 
         try {
             const submissionData = {
-                ...formData,
+                complaint_id: `CMP-${Math.floor(Math.random() * 10000)}`,
+                complaint_type: formData.complaint_type,
                 latitude: coords.lat,
                 longitude: coords.lng,
-                area_name: areaName
+                area_name: areaName,
+                description: formData.description,
+                urgency: formData.urgency
             };
 
-            await complaintsService.createComplaint(submissionData);
+            await createComplaint(submissionData);
             setShowForm(false);
             setFormData({
                 complaint_type: 'overflowing_bin',
                 description: '',
                 urgency: 'medium',
             });
-            fetchComplaints();
         } catch (error) {
             console.error('Error creating complaint:', error);
         }
@@ -103,20 +105,6 @@ const Complaints = () => {
         boxSizing: 'border-box',
     };
 
-    if (loading) {
-        return (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '400px' }}>
-                <div style={{
-                    width: '48px',
-                    height: '48px',
-                    border: '3px solid #374151',
-                    borderTopColor: '#8b5cf6',
-                    borderRadius: '50%',
-                    animation: 'spin 1s linear infinite',
-                }} />
-            </div>
-        );
-    }
 
     return (
         <div style={{ minHeight: '100vh', backgroundColor: '#111827', padding: '1.5rem' }}>

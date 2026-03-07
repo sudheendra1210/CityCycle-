@@ -30,8 +30,11 @@ const Profile = () => {
             await updateProfile({ name: name.trim() });
             setIsNewUser(false);
             setMessage({ type: 'success', text: 'Name saved successfully!' });
+            // Navigate to dashboard after successful save
+            setTimeout(() => navigate('/'), 500);
         } catch (err) {
-            setMessage({ type: 'error', text: 'Failed to save name.' });
+            console.error('Profile save error:', err);
+            setMessage({ type: 'error', text: 'Failed to save name. Please try again.' });
         } finally {
             setIsSaving(false);
         }

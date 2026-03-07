@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../convex/_generated/api.js';
 import { MdLocationOn as MapPin, MdFilterList as Filter, MdAddCircle } from 'react-icons/md';
 import BinMap from '../components/Map/BinMap';
 import { binsService } from '../services/binsService';
 
 const Bins = () => {
-    const [bins, setBins] = useState([]);
+    // Use Convex for real-time bin data
+    const bins = useQuery(api.bins.getWithReadings) || [];
+
     const [filteredBins, setFilteredBins] = useState([]);
-    const [loading, setLoading] = useState(true);
     const [seeding, setSeeding] = useState(false);
     const [viewMode, setViewMode] = useState('map'); // 'map' or 'list'
     const [filters, setFilters] = useState({
@@ -16,23 +19,11 @@ const Bins = () => {
     });
 
     useEffect(() => {
-        fetchBins();
-    }, []);
-
-    useEffect(() => {
         applyFilters();
     }, [bins, filters]);
 
-    const fetchBins = async () => {
-        try {
-            setLoading(true);
-            const data = await binsService.getAllBins();
-            setBins(data);
-        } catch (error) {
-            console.error('Error fetching bins:', error);
-        } finally {
-            setLoading(false);
-        }
+    const fetchBins = () => {
+        // No longer needed, as useQuery handles it
     };
 
     // Get user location, with fallback
@@ -106,7 +97,7 @@ const Bins = () => {
         fontSize: '0.875rem',
     };
 
-    if (loading) {
+    if (bins.length === 0 && !seeding) {
         return (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '400px' }}>
                 <div style={{

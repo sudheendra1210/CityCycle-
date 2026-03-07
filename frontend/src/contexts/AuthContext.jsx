@@ -66,6 +66,7 @@ export const AuthProvider = ({ children }) => {
         user: dbUser || (clerkUser ? {
             id: clerkUser.id,
             email: clerkUser.primaryEmailAddress?.emailAddress,
+            name: clerkUser.fullName || clerkUser.firstName || '',
             fullName: clerkUser.fullName,
             role: 'user' // Fallback
         } : null),

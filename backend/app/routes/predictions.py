@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from app.middleware.auth import require_role
 from sqlalchemy.orm import Session
 from app.models.database_models import Bin, BinReading
 from app.utils.database import get_db
@@ -8,21 +9,34 @@ from typing import List, Dict
 from datetime import datetime
 from app.models.schemas import FillLevelPrediction, RouteOptimization, RouteOptimizationRequest
 
+from app.utils.convex_client import convex_manager
+
 router = APIRouter()
 
+def map_reading(r):
+    """Map Convex reading to the format expected by ML predictor"""
+    return {
+        "bin_id": r["bin_id"],
+        "fill_level_percent": r["fill_level_percent"],
+        "timestamp": datetime.fromtimestamp(r["timestamp"] / 1000.0) if isinstance(r["timestamp"], (int, float)) else r["timestamp"]
+    }
+
 @router.get("/fill-level/{bin_id}", response_model=FillLevelPrediction)
-def predict_bin_fill_level(bin_id: str, hours_ahead: int = 24, db: Session = Depends(get_db)):
+def predict_bin_fill_level(
+    bin_id: str, 
+    hours_ahead: int = 24, 
+    user=Depends(require_role("admin"))
+):
     """Predict when a bin will be full"""
     
-    # Get bin
-    bin = db.query(Bin).filter(Bin.bin_id == bin_id).first()
-    if not bin:
+    # Get bin from Convex
+    bin_data = convex_manager.get_bin(bin_id)
+    if not bin_data:
         raise HTTPException(status_code=404, detail="Bin not found")
     
-    # Get historical readings
-    readings = db.query(BinReading).filter(
-        BinReading.bin_id == bin_id
-    ).order_by(BinReading.timestamp.desc()).limit(100).all()
+    # Get historical readings from Convex
+    raw_readings = convex_manager.get_bin_readings(bin_id, limit=100)
+    readings = [map_reading(r) for r in raw_readings]
     
     if len(readings) < 5:
         raise HTTPException(status_code=400, detail="Not enough data for prediction")
@@ -35,28 +49,18 @@ def predict_bin_fill_level(bin_id: str, hours_ahead: int = 24, db: Session = Dep
 @router.post("/route-optimization", response_model=RouteOptimization)
 def optimize_route(
     request: RouteOptimizationRequest,
-    db: Session = Depends(get_db)
+    user=Depends(require_role("admin"))
 ):
     """Optimize collection route for bins above threshold"""
     
     vehicle_id = request.vehicle_id
     threshold = request.threshold
     
-    # Get bins needing collection
-    from sqlalchemy.sql import func
+    # Get all bins and their latest readings from Convex
+    all_bins = convex_manager.get_bins()
+    high_fill_bins = [b for b in all_bins if b.get('current_fill_level', 0) >= threshold]
     
-    subquery = db.query(
-        BinReading.bin_id,
-        func.max(BinReading.timestamp).label('max_timestamp')
-    ).group_by(BinReading.bin_id).subquery()
-    
-    high_fill_readings = db.query(BinReading).join(
-        subquery,
-        (BinReading.bin_id == subquery.c.bin_id) &
-        (BinReading.timestamp == subquery.c.max_timestamp)
-    ).filter(BinReading.fill_level_percent >= threshold).all()
-    
-    if not high_fill_readings:
+    if not high_fill_bins:
         return {
             "vehicle_id": vehicle_id,
             "bins_to_collect": [],
@@ -65,30 +69,29 @@ def optimize_route(
             "optimized_sequence": []
         }
     
-    bin_ids = [r.bin_id for r in high_fill_readings]
-    bins = db.query(Bin).filter(Bin.bin_id.in_(bin_ids)).all()
-    
     # Optimize route
-    optimized_route = optimize_collection_route(vehicle_id, bins)
+    optimized_route = optimize_collection_route(vehicle_id, high_fill_bins)
     
     return optimized_route
 
 @router.get("/all-bins")
-def predict_all_bins(area_name: str = None, threshold: float = 70.0, db: Session = Depends(get_db)):
+def predict_all_bins(
+    area_name: str = None, 
+    threshold: float = 70.0, 
+    user=Depends(require_role("admin"))
+):
     """Get predictions for all bins above threshold, optionally filtered by area"""
     
-    # Get bins
-    bin_query = db.query(Bin)
+    # Get bins from Convex
+    all_bins = convex_manager.get_bins()
     if area_name:
-        bin_query = bin_query.filter(Bin.area_name == area_name)
-    
-    bins = bin_query.all()
+        all_bins = [b for b in all_bins if b.get('area_name') == area_name]
     
     predictions = []
-    for bin in bins:
-        readings = db.query(BinReading).filter(
-            BinReading.bin_id == bin.bin_id
-        ).order_by(BinReading.timestamp.desc()).limit(50).all()
+    for bin_data in all_bins:
+        bin_id = bin_data['bin_id']
+        raw_readings = convex_manager.get_bin_readings(bin_id, limit=50)
+        readings = [map_reading(r) for r in raw_readings]
         
         if len(readings) >= 5:
             try:
@@ -103,7 +106,7 @@ def predict_all_bins(area_name: str = None, threshold: float = 70.0, db: Session
 @router.post("/bin-fill")
 def predict_specific_bin_fill(
     payload: Dict,
-    db: Session = Depends(get_db)
+    user=Depends(require_role("admin"))
 ):
     """Predict fill level for a specific bin passed in JSON body"""
     bin_id = payload.get("bin_id")
@@ -112,13 +115,12 @@ def predict_specific_bin_fill(
     if not bin_id:
         raise HTTPException(status_code=400, detail="bin_id is required")
         
-    bin = db.query(Bin).filter(Bin.bin_id == bin_id).first()
-    if not bin:
+    bin_data = convex_manager.get_bin(bin_id)
+    if not bin_data:
         raise HTTPException(status_code=404, detail="Bin not found")
         
-    readings = db.query(BinReading).filter(
-        BinReading.bin_id == bin_id
-    ).order_by(BinReading.timestamp.desc()).limit(100).all()
+    raw_readings = convex_manager.get_bin_readings(bin_id, limit=100)
+    readings = [map_reading(r) for r in raw_readings]
     
     if len(readings) < 5:
         raise HTTPException(status_code=400, detail="Not enough data")

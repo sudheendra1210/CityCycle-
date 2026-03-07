@@ -4,6 +4,7 @@ Endpoints for bin fill-level simulation and threshold comparison.
 """
 
 from fastapi import APIRouter, Depends, Query
+from app.middleware.auth import require_role
 from typing import Optional
 
 from app.ml.bin_simulator import BinSimulator
@@ -21,6 +22,7 @@ def run_simulation(
     initial_fill: float = Query(0.0, ge=0, le=100),
     fill_rate_multiplier: float = Query(1.0, ge=0.1, le=5.0),
     fixed_threshold: float = Query(80.0, ge=50, le=100),
+    user=Depends(require_role("admin"))
 ):
     """
     Run a bin fill-level simulation with specified parameters.
@@ -47,6 +49,7 @@ def compare_thresholds(
     dynamic_base: float = Query(70.0, ge=40, le=95),
     dynamic_weekend_offset: float = Query(-10.0, ge=-30, le=0),
     dynamic_peak_offset: float = Query(-15.0, ge=-30, le=0),
+    user=Depends(require_role("admin"))
 ):
     """
     Compare fixed vs. dynamic collection thresholds.
