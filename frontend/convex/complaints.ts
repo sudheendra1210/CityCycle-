@@ -26,6 +26,17 @@ export const create = mutation({
         urgency: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
+        // Validate bin_id if provided
+        if (args.bin_id) {
+            const bin = await ctx.db
+                .query("bins")
+                .withIndex("by_bin_id", (q) => q.eq("bin_id", args.bin_id!))
+                .unique();
+            if (!bin) {
+                throw new Error(`Bin ID "${args.bin_id}" does not exist. Please enter a valid Bin ID.`);
+            }
+        }
+
         return await ctx.db.insert("complaints", {
             ...args,
             timestamp: Date.now(),

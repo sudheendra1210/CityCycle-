@@ -7,7 +7,9 @@ import { binsService } from '../services/binsService';
 
 const Bins = () => {
     // Use Convex for real-time bin data
-    const bins = useQuery(api.bins.getWithReadings) || [];
+    const binsQuery = useQuery(api.bins.getWithReadings);
+    const isLoading = binsQuery === undefined;
+    const bins = binsQuery ?? [];
 
     const [filteredBins, setFilteredBins] = useState([]);
     const [seeding, setSeeding] = useState(false);
@@ -97,7 +99,7 @@ const Bins = () => {
         fontSize: '0.875rem',
     };
 
-    if (bins.length === 0 && !seeding) {
+    if (isLoading) {
         return (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '400px' }}>
                 <div style={{
@@ -204,7 +206,7 @@ const Bins = () => {
             </div>
 
             {/* Empty State - Generate Bins */}
-            {bins.length === 0 && !loading ? (
+            {bins.length === 0 ? (
                 <div style={{
                     backgroundColor: '#1f2937',
                     borderRadius: '0.75rem',

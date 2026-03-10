@@ -69,6 +69,21 @@ const getBinIcon = (fillLevel) => {
     });
 };
 
+// Highlighted bin marker (pulsing gold/purple)
+const getHighlightedBinIcon = () =>
+    L.divIcon({
+        className: 'highlighted-bin-marker',
+        html: `<div style="
+            width: 22px; height: 22px; border-radius: 50%;
+            background: linear-gradient(135deg, #a78bfa, #f59e0b);
+            border: 3px solid #ffffff;
+            box-shadow: 0 0 0 8px rgba(167,139,250,0.3), 0 0 30px rgba(167,139,250,0.5);
+            animation: highlightPulse 1.2s ease-in-out infinite;
+        "></div>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+    });
+
 // Hotspot warning icon
 const getHotspotIcon = () =>
     L.divIcon({
@@ -92,6 +107,7 @@ const BinMap = ({
     userLng,
     center = [17.3850, 78.4867],
     zoom = 14,
+    highlightBinId = null,
 }) => {
     // Build a route lookup map: binId → { distanceFromUser, routeOrder }
     const routeLookup = useMemo(() => {
@@ -114,203 +130,237 @@ const BinMap = ({
         routePositions.unshift([userLat, userLng]);
     }
 
+    // Find the highlighted bin
+    const highlightedBin = highlightBinId
+        ? bins.find(b => b.id === highlightBinId)
+        : null;
+
     return (
-        <div style={{
-            backgroundColor: '#0f172a',
-            borderRadius: '0.75rem',
-            height: '100%',
-            overflow: 'hidden',
-            border: '1px solid rgba(255,255,255,0.06)',
-            position: 'relative',
-        }}>
-            <MapContainer
-                center={center}
-                zoom={zoom}
-                zoomControl={false}
-                style={{ height: '100%', width: '100%' }}
-            >
-                <ChangeView center={center} zoom={zoom} />
-                <TileLayer
-                    url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                    attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-                />
-                <ZoomControl position="bottomright" />
-
-                {/* User Location Marker */}
-                {userLat && userLng && (
-                    <Marker position={[userLat, userLng]} icon={getUserIcon()}>
-                        <Popup>
-                            <div style={{ padding: '4px', textAlign: 'center' }}>
-                                <p style={{ margin: 0, fontWeight: 700, fontSize: '0.875rem', color: '#3b82f6' }}>📍 Your Location</p>
-                                <p style={{ margin: '4px 0 0 0', fontSize: '0.7rem', color: '#94a3b8' }}>
-                                    {userLat.toFixed(4)}, {userLng.toFixed(4)}
-                                </p>
-                            </div>
-                        </Popup>
-                    </Marker>
-                )}
-
-                {/* Hotspot Warning Zones */}
-                {hotspots.map((hs) => (
-                    <Circle
-                        key={hs.id}
-                        center={[hs.center.lat, hs.center.lng]}
-                        radius={hs.radius}
-                        pathOptions={{
-                            color: '#ef4444',
-                            fillColor: '#ef4444',
-                            fillOpacity: 0.08,
-                            weight: 1.5,
-                            dashArray: '6, 6',
-                        }}
+        <>
+            {/* Inject highlight animation */}
+            <style>{`
+                @keyframes highlightPulse {
+                    0%, 100% { box-shadow: 0 0 0 8px rgba(167,139,250,0.3), 0 0 30px rgba(167,139,250,0.5); transform: scale(1); }
+                    50% { box-shadow: 0 0 0 14px rgba(167,139,250,0.15), 0 0 40px rgba(167,139,250,0.6); transform: scale(1.15); }
+                }
+            `}</style>
+            <div style={{
+                backgroundColor: '#0f172a',
+                borderRadius: '0.75rem',
+                height: '100%',
+                overflow: 'hidden',
+                border: '1px solid rgba(255,255,255,0.06)',
+                position: 'relative',
+            }}>
+                <MapContainer
+                    center={center}
+                    zoom={zoom}
+                    zoomControl={false}
+                    style={{ height: '100%', width: '100%' }}
+                >
+                    <ChangeView center={center} zoom={zoom} />
+                    <TileLayer
+                        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                        attribution='&copy; <a href="https://carto.com/">CARTO</a>'
                     />
-                ))}
-                {hotspots.map((hs) => (
-                    <Marker key={`hs-icon-${hs.id}`} position={[hs.center.lat, hs.center.lng]} icon={getHotspotIcon()}>
-                        <Popup>
-                            <div style={{ padding: '4px', minWidth: '150px' }}>
-                                <p style={{ margin: '0 0 4px 0', fontWeight: 800, fontSize: '0.8rem', color: '#ef4444' }}>⚠️ HIGH WASTE ZONE</p>
-                                <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>
-                                    {hs.binIds.length} critical bins | Avg fill: {hs.avgFill}%
-                                </p>
-                            </div>
-                        </Popup>
-                    </Marker>
-                ))}
+                    <ZoomControl position="bottomright" />
 
-                {/* Route Polyline */}
-                {routePositions.length > 1 && (
-                    <Polyline
-                        positions={routePositions}
-                        pathOptions={{
-                            color: '#06b6d4',
-                            weight: 3.5,
-                            opacity: 0.85,
-                            dashArray: '10, 8',
-                            lineJoin: 'round',
-                            lineCap: 'round',
-                        }}
-                    />
-                )}
-
-                {/* Bin Markers */}
-                {bins.map((bin) => {
-                    // Calculate distance from user to this bin
-                    const distFromUser =
-                        userLat && userLng
-                            ? haversineDistance(userLat, userLng, bin.lat, bin.lng)
-                            : null;
-                    const distLabel = distFromUser !== null ? distFromUser.toFixed(2) : null;
-
-                    // Check if this bin is part of the optimized route
-                    const routeInfo = routeLookup.get(bin.id);
-
-                    return (
-                        <Marker
-                            key={bin.id}
-                            position={[bin.lat, bin.lng]}
-                            icon={getBinIcon(bin.fillLevel)}
-                        >
-                            {/* Hover tooltip showing distance */}
-                            {distLabel && (
-                                <Tooltip
-                                    direction="top"
-                                    offset={[0, -10]}
-                                    className="distance-tooltip"
-                                    permanent={false}
-                                >
-                                    <span style={{ fontWeight: 700, fontSize: '0.7rem' }}>
-                                        {bin.id} — {distLabel} km
-                                        {routeInfo ? ` • Route #${routeInfo.routeOrder}` : ''}
-                                    </span>
-                                </Tooltip>
-                            )}
-
-                            {/* Click popup with full details + distance */}
-                            <Popup className="dark-popup">
-                                <div style={{ minWidth: '210px', padding: '4px' }}>
-                                    {/* Header */}
-                                    <div style={{
-                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                        marginBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '6px'
-                                    }}>
-                                        <h4 style={{ margin: 0, fontWeight: 700, fontSize: '1rem', color: '#fff' }}>{bin.id}</h4>
-                                        <span style={{
-                                            fontSize: '0.6rem', padding: '2px 8px', borderRadius: '99px',
-                                            backgroundColor: bin.fillLevel > 80 ? 'rgba(239,68,68,0.2)' : bin.fillLevel >= 50 ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)',
-                                            color: bin.fillLevel > 80 ? '#ef4444' : bin.fillLevel >= 50 ? '#f59e0b' : '#10b981',
-                                            textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.05em'
-                                        }}>
-                                            {bin.status}
-                                        </span>
-                                    </div>
-
-                                    {/* Details */}
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>Fill Level</span>
-                                            <span style={{ color: bin.fillLevel > 80 ? '#ef4444' : '#10b981', fontWeight: 800, fontSize: '0.85rem' }}>
-                                                {bin.fillLevel}%
-                                            </span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>Waste Type</span>
-                                            <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '0.75rem' }}>{bin.wasteType}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>Battery</span>
-                                            <span style={{
-                                                color: bin.batteryLevel < 20 ? '#ef4444' : '#10b981',
-                                                fontWeight: 700, fontSize: '0.75rem'
-                                            }}>
-                                                {bin.batteryLevel}% 🔋
-                                            </span>
-                                        </div>
-
-                                        {/* ★ Distance from user */}
-                                        {distLabel && (
-                                            <div style={{
-                                                display: 'flex', justifyContent: 'space-between',
-                                                borderTop: '1px solid rgba(6,182,212,0.15)', paddingTop: '5px', marginTop: '2px'
-                                            }}>
-                                                <span style={{ color: '#06b6d4', fontSize: '0.75rem', fontWeight: 600 }}>Distance from you</span>
-                                                <span style={{ color: '#06b6d4', fontWeight: 800, fontSize: '0.85rem' }}>
-                                                    {distLabel} km
-                                                </span>
-                                            </div>
-                                        )}
-
-                                        {/* ★ Route order (only shown after Optimize Routes) */}
-                                        {routeInfo && (
-                                            <div style={{
-                                                display: 'flex', justifyContent: 'space-between',
-                                                background: 'rgba(6,182,212,0.08)',
-                                                borderRadius: '6px', padding: '4px 8px',
-                                            }}>
-                                                <span style={{ color: '#06b6d4', fontSize: '0.75rem', fontWeight: 600 }}>Route Order</span>
-                                                <span style={{ color: '#06b6d4', fontWeight: 900, fontSize: '0.85rem' }}>
-                                                    #{routeInfo.routeOrder}
-                                                </span>
-                                            </div>
-                                        )}
-
-                                        <div style={{
-                                            display: 'flex', justifyContent: 'space-between',
-                                            borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '4px', marginTop: '2px'
-                                        }}>
-                                            <span style={{ color: '#6b7280', fontSize: '0.65rem' }}>Last Collected</span>
-                                            <span style={{ color: '#6b7280', fontSize: '0.65rem' }}>
-                                                {new Date(bin.lastCollected).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                            </span>
-                                        </div>
-                                    </div>
+                    {/* User Location Marker */}
+                    {userLat && userLng && (
+                        <Marker position={[userLat, userLng]} icon={getUserIcon()}>
+                            <Popup>
+                                <div style={{ padding: '4px', textAlign: 'center' }}>
+                                    <p style={{ margin: 0, fontWeight: 700, fontSize: '0.875rem', color: '#3b82f6' }}>📍 Your Location</p>
+                                    <p style={{ margin: '4px 0 0 0', fontSize: '0.7rem', color: '#94a3b8' }}>
+                                        {userLat.toFixed(4)}, {userLng.toFixed(4)}
+                                    </p>
                                 </div>
                             </Popup>
                         </Marker>
-                    );
-                })}
-            </MapContainer>
-        </div>
+                    )}
+
+                    {/* Hotspot Warning Zones */}
+                    {hotspots.map((hs) => (
+                        <Circle
+                            key={hs.id}
+                            center={[hs.center.lat, hs.center.lng]}
+                            radius={hs.radius}
+                            pathOptions={{
+                                color: '#ef4444',
+                                fillColor: '#ef4444',
+                                fillOpacity: 0.08,
+                                weight: 1.5,
+                                dashArray: '6, 6',
+                            }}
+                        />
+                    ))}
+                    {hotspots.map((hs) => (
+                        <Marker key={`hs-icon-${hs.id}`} position={[hs.center.lat, hs.center.lng]} icon={getHotspotIcon()}>
+                            <Popup>
+                                <div style={{ padding: '4px', minWidth: '150px' }}>
+                                    <p style={{ margin: '0 0 4px 0', fontWeight: 800, fontSize: '0.8rem', color: '#ef4444' }}>⚠️ HIGH WASTE ZONE</p>
+                                    <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>
+                                        {hs.binIds.length} critical bins | Avg fill: {hs.avgFill}%
+                                    </p>
+                                </div>
+                            </Popup>
+                        </Marker>
+                    ))}
+
+                    {/* Route Polyline */}
+                    {routePositions.length > 1 && (
+                        <Polyline
+                            positions={routePositions}
+                            pathOptions={{
+                                color: '#06b6d4',
+                                weight: 3.5,
+                                opacity: 0.85,
+                                dashArray: '10, 8',
+                                lineJoin: 'round',
+                                lineCap: 'round',
+                            }}
+                        />
+                    )}
+
+                    {/* Bin Markers */}
+                    {bins.map((bin) => {
+                        // Calculate distance from user to this bin
+                        const distFromUser =
+                            userLat && userLng
+                                ? haversineDistance(userLat, userLng, bin.lat, bin.lng)
+                                : null;
+                        const distLabel = distFromUser !== null ? distFromUser.toFixed(2) : null;
+
+                        // Check if this bin is part of the optimized route
+                        const routeInfo = routeLookup.get(bin.id);
+
+                        return (
+                            <Marker
+                                key={bin.id}
+                                position={[bin.lat, bin.lng]}
+                                icon={getBinIcon(bin.fillLevel)}
+                            >
+                                {/* Hover tooltip showing distance */}
+                                {distLabel && (
+                                    <Tooltip
+                                        direction="top"
+                                        offset={[0, -10]}
+                                        className="distance-tooltip"
+                                        permanent={false}
+                                    >
+                                        <span style={{ fontWeight: 700, fontSize: '0.7rem' }}>
+                                            {bin.id} — {distLabel} km
+                                            {routeInfo ? ` • Route #${routeInfo.routeOrder}` : ''}
+                                        </span>
+                                    </Tooltip>
+                                )}
+
+                                {/* Click popup with full details + distance */}
+                                <Popup className="dark-popup">
+                                    <div style={{ minWidth: '210px', padding: '4px' }}>
+                                        {/* Header */}
+                                        <div style={{
+                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                            marginBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '6px'
+                                        }}>
+                                            <h4 style={{ margin: 0, fontWeight: 700, fontSize: '1rem', color: '#fff' }}>{bin.id}</h4>
+                                            <span style={{
+                                                fontSize: '0.6rem', padding: '2px 8px', borderRadius: '99px',
+                                                backgroundColor: bin.fillLevel > 80 ? 'rgba(239,68,68,0.2)' : bin.fillLevel >= 50 ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)',
+                                                color: bin.fillLevel > 80 ? '#ef4444' : bin.fillLevel >= 50 ? '#f59e0b' : '#10b981',
+                                                textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.05em'
+                                            }}>
+                                                {bin.status}
+                                            </span>
+                                        </div>
+
+                                        {/* Details */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>Fill Level</span>
+                                                <span style={{ color: bin.fillLevel > 80 ? '#ef4444' : '#10b981', fontWeight: 800, fontSize: '0.85rem' }}>
+                                                    {bin.fillLevel}%
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>Waste Type</span>
+                                                <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '0.75rem' }}>{bin.wasteType}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>Battery</span>
+                                                <span style={{
+                                                    color: bin.batteryLevel < 20 ? '#ef4444' : '#10b981',
+                                                    fontWeight: 700, fontSize: '0.75rem'
+                                                }}>
+                                                    {bin.batteryLevel}% 🔋
+                                                </span>
+                                            </div>
+
+                                            {/* ★ Distance from user */}
+                                            {distLabel && (
+                                                <div style={{
+                                                    display: 'flex', justifyContent: 'space-between',
+                                                    borderTop: '1px solid rgba(6,182,212,0.15)', paddingTop: '5px', marginTop: '2px'
+                                                }}>
+                                                    <span style={{ color: '#06b6d4', fontSize: '0.75rem', fontWeight: 600 }}>Distance from you</span>
+                                                    <span style={{ color: '#06b6d4', fontWeight: 800, fontSize: '0.85rem' }}>
+                                                        {distLabel} km
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            {/* ★ Route order (only shown after Optimize Routes) */}
+                                            {routeInfo && (
+                                                <div style={{
+                                                    display: 'flex', justifyContent: 'space-between',
+                                                    background: 'rgba(6,182,212,0.08)',
+                                                    borderRadius: '6px', padding: '4px 8px',
+                                                }}>
+                                                    <span style={{ color: '#06b6d4', fontSize: '0.75rem', fontWeight: 600 }}>Route Order</span>
+                                                    <span style={{ color: '#06b6d4', fontWeight: 900, fontSize: '0.85rem' }}>
+                                                        #{routeInfo.routeOrder}
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            <div style={{
+                                                display: 'flex', justifyContent: 'space-between',
+                                                borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '4px', marginTop: '2px'
+                                            }}>
+                                                <span style={{ color: '#6b7280', fontSize: '0.65rem' }}>Last Collected</span>
+                                                <span style={{ color: '#6b7280', fontSize: '0.65rem' }}>
+                                                    {new Date(bin.lastCollected).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </Popup>
+                            </Marker>
+                        );
+                    })}
+
+                    {/* Highlighted Bin Marker */}
+                    {highlightedBin && (
+                        <Marker
+                            position={[highlightedBin.lat, highlightedBin.lng]}
+                            icon={getHighlightedBinIcon()}
+                            zIndexOffset={1000}
+                        >
+                            <Popup className="dark-popup">
+                                <div style={{ minWidth: '180px', padding: '4px', textAlign: 'center' }}>
+                                    <p style={{ margin: 0, fontWeight: 800, fontSize: '0.9rem', color: '#a78bfa' }}>
+                                        📍 {highlightedBin.id}
+                                    </p>
+                                    <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
+                                        This bin is linked to a complaint
+                                    </p>
+                                </div>
+                            </Popup>
+                        </Marker>
+                    )}
+                </MapContainer>
+            </div>
+        </>
     );
 };
 
